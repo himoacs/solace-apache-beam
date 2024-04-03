@@ -61,6 +61,19 @@
 				<artifactId>beam-sdks-java-io-solace</artifactId>
 				<version>${solace-beam.version}</version>
 			</dependency>
+
+			<dependency>
+				<groupId>com.google.cloud.bigtable</groupId>
+				<artifactId>bigtable-hbase-beam</artifactId>
+				<version>2.12.0</version>
+			</dependency>
+
+			<dependency>
+				<groupId>com.google.cloud</groupId>
+				<artifactId>google-cloud-bigtable</artifactId>
+				<version>2.37.0</version>
+			</dependency>
+
 		</dependencies>
 	</dependencyManagement>
 
@@ -146,7 +159,7 @@
 				<dependency>
 					<groupId>org.apache.beam</groupId>
 					<artifactId>beam-runners-direct-java</artifactId>
-					<scope>runtime</scope>
+					<scope>import</scope>
 				</dependency>
 			</dependencies>
 		</profile>
@@ -158,7 +171,7 @@
 				<dependency>
 					<groupId>org.apache.beam</groupId>
 					<artifactId>beam-runners-google-cloud-dataflow-java</artifactId>
-					<scope>runtime</scope>
+					<scope>import</scope>
 				</dependency>
 			</dependencies>
 		</profile>
