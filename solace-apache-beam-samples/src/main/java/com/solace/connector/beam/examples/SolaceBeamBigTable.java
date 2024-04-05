@@ -2,9 +2,9 @@ package com.solace.connector.beam.examples;
 
 import com.google.cloud.bigtable.beam.CloudBigtableIO;
 import com.google.cloud.bigtable.beam.CloudBigtableTableConfiguration;
-import com.google.cloud.bigtable.hbase.BigtableOptionsFactory;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.PipelineResult;
 import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.Description;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
@@ -43,63 +43,7 @@ public class SolaceBeamBigTable {
 
     private static final Logger LOG = LoggerFactory.getLogger(SolaceRecordTest.class);
 
-    public static void main(String[] args) {
-
-        BigtableOptions options =
-                PipelineOptionsFactory.fromArgs(args).withValidation().as(BigtableOptions.class);
-
-        List<String> queues = Arrays.asList(options.getSql().split(","));
-        boolean useSenderMsgId = options.getSmi();
-
-        /** Create pipeline **/
-        Pipeline p = Pipeline.create(options);
-
-        /** Set Solace connection properties **/
-        JCSMPProperties jcsmpProperties = new JCSMPProperties();
-        jcsmpProperties.setProperty(JCSMPProperties.HOST, options.getCip());
-        jcsmpProperties.setProperty(JCSMPProperties.VPN_NAME, options.getVpn());
-        jcsmpProperties.setProperty(JCSMPProperties.USERNAME, options.getCu());
-        jcsmpProperties.setProperty(JCSMPProperties.PASSWORD, options.getCp());
-
-        /** Create object for BigTable table configuration to be used later to run the pipeline **/
-        CloudBigtableTableConfiguration bigtableTableConfig =
-                new CloudBigtableTableConfiguration.Builder()
-                        .withProjectId(options.getBigtableProjectId())
-                        .withInstanceId(options.getBigtableInstanceId())
-                        .withTableId(options.getBigtableTableId())
-                        .build();
-
-        /* The pipeline consists of three components:
-         * 1. Reading message from Solace queue
-         * 2. Doing any necessary transformation and creating a BigTable row
-         * 3. Writing the row to BigTable
-         */
-        p.apply(SolaceIO.read(jcsmpProperties, queues, SolaceTextRecord.getCoder(), SolaceTextRecord.getMapper())
-                        .withUseSenderTimestamp(options.getSts())
-                        .withAdvanceTimeoutInMillis(options.getTimeout()))
-                .apply(ParDo.of(
-                        new DoFn<SolaceTextRecord, Mutation>() {
-                            @ProcessElement
-                            public void processElement(ProcessContext c) {
-
-                                String uniqueID = UUID.randomUUID().toString();
-
-                                Put row = new Put(Bytes.toBytes(uniqueID));
-
-                                /** Create row that will be written to BigTable **/
-                                row.addColumn(
-                                        Bytes.toBytes("stats"),
-                                        null,
-                                        c.element().getPayload().getBytes(StandardCharsets.UTF_8));
-                                c.output(row);
-                            }
-                                }))
-                .apply(CloudBigtableIO.writeToTable(bigtableTableConfig));
-
-        p.run().waitUntilFinish();
-    }
-
-    public interface BigtableOptions extends DataflowPipelineOptions {
+    public interface Options extends DataflowPipelineOptions {
 
         @Description("IP and port of the client appliance. (e.g. -cip=192.168.160.101)")
         String getCip();
@@ -164,16 +108,75 @@ public class SolaceBeamBigTable {
         void setBigtableTableId(String bigtableTableId);
     }
 
-    public static CloudBigtableTableConfiguration batchWriteFlowControlExample(
-            BigtableOptions options) {
+    private static void WriteToBigTable(Options options) throws Exception {
+
+        List<String> queues = Arrays.asList(options.getSql().split(","));
+        boolean useSenderMsgId = options.getSmi();
+
+        /** Create pipeline **/
+        Pipeline pipeline = Pipeline.create(options);
+
+        /** Set Solace connection properties **/
+        JCSMPProperties jcsmpProperties = new JCSMPProperties();
+        jcsmpProperties.setProperty(JCSMPProperties.HOST, options.getCip());
+        jcsmpProperties.setProperty(JCSMPProperties.VPN_NAME, options.getVpn());
+        jcsmpProperties.setProperty(JCSMPProperties.USERNAME, options.getCu());
+        jcsmpProperties.setProperty(JCSMPProperties.PASSWORD, options.getCp());
+
+        /** Create object for BigTable table configuration to be used later to run the pipeline **/
         CloudBigtableTableConfiguration bigtableTableConfig =
                 new CloudBigtableTableConfiguration.Builder()
                         .withProjectId(options.getBigtableProjectId())
                         .withInstanceId(options.getBigtableInstanceId())
                         .withTableId(options.getBigtableTableId())
-                        .withConfiguration(BigtableOptionsFactory.BIGTABLE_ENABLE_BULK_MUTATION_FLOW_CONTROL,
-                                "true")
                         .build();
-        return bigtableTableConfig;
+
+        /* The pipeline consists of three components:
+         * 1. Reading message from Solace queue
+         * 2. Doing any necessary transformation and creating a BigTable row
+         * 3. Writing the row to BigTable
+         */
+        pipeline.apply(SolaceIO.read(jcsmpProperties, queues, SolaceTextRecord.getCoder(), SolaceTextRecord.getMapper())
+                        .withUseSenderTimestamp(options.getSts())
+                        .withAdvanceTimeoutInMillis(options.getTimeout()))
+                .apply("Map to BigTable row",
+                        ParDo.of(
+                                new DoFn<SolaceTextRecord, Mutation>() {
+                                    @ProcessElement
+                                    public void processElement(ProcessContext c) {
+
+                                        String uniqueID = UUID.randomUUID().toString();
+
+                                        Put row = new Put(Bytes.toBytes(uniqueID));
+
+                                        /** Create row that will be written to BigTable **/
+                                        row.addColumn(
+                                                Bytes.toBytes("stats"),
+                                                null,
+                                                c.element().getPayload().getBytes(StandardCharsets.UTF_8));
+                                        c.output(row);
+                                    }
+                                }))
+                .apply("Write to BigTable",
+                        CloudBigtableIO.writeToTable(bigtableTableConfig));
+
+        PipelineResult result = pipeline.run();
+
+        try {
+            result.waitUntilFinish();
+        } catch (Exception exc) {
+            result.cancel();
+        }
+
+    }
+
+    public static void main(String[] args) {
+        Options options = PipelineOptionsFactory.fromArgs(args).withValidation().as(SolaceBeamBigTable.Options.class);
+
+        try {
+            WriteToBigTable(options);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }
