@@ -138,6 +138,18 @@
 			<artifactId>beam-vendor-guava-26_0-jre</artifactId>
 			<version>0.1</version>
 		</dependency>
+
+		<dependency>
+			<groupId>com.google.cloud.bigtable</groupId>
+			<artifactId>bigtable-hbase-beam</artifactId>
+			<version>2.12.0</version>
+		</dependency>
+
+		<dependency>
+			<groupId>com.google.cloud</groupId>
+			<artifactId>google-cloud-bigtable</artifactId>
+			<version>2.37.0</version>
+		</dependency>
 	</dependencies>
 
 	<profiles>
